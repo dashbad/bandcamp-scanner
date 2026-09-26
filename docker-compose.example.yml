@@ -1,0 +1,27 @@
+# Service definition for the tools stack on the home server (Traefik + google-auth forward auth).
+# Secrets (BANDCAMP_GMAIL_APP_PASSWORD, BANDCAMP_GOTIFY_TOKEN) live in the stack's .env.
+services:
+  bandcamp-scanner:
+    build: ${DOCKER_DIR}/tools/bandcamp_scanner/app
+    image: bandcamp-scanner:local
+    container_name: bandcamp-scanner
+    user: ${PUID}:${PGID}
+    environment:
+      - TZ=${TZ}
+      - GMAIL_ADDRESS=${BANDCAMP_GMAIL_ADDRESS}
+      - GMAIL_APP_PASSWORD=${BANDCAMP_GMAIL_APP_PASSWORD}
+      - BACKFILL_DAYS=2
+      - PUBLIC_URL=https://bandcamp.dashbad.com
+      - GOTIFY_URL=http://gotify:24045
+      - GOTIFY_TOKEN=${BANDCAMP_GOTIFY_TOKEN}
+    volumes:
+      - ${DOCKER_DIR}/tools/bandcamp_scanner/data:/data
+    restart: unless-stopped
+    networks:
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.bandcamp.rule=Host(`bandcamp.dashbad.com`)"
+      - "traefik.http.routers.bandcamp.entrypoints=websecure"
+      - "traefik.http.services.bandcamp.loadbalancer.server.port=8765"
+      - "traefik.http.routers.bandcamp.middlewares=google-auth@file"

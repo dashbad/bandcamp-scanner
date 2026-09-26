@@ -1,0 +1,6 @@
+.git
+*.db
+*.db-*
+*.log
+config.json
+__pycache__

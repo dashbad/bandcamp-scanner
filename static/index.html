@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bandcamp Release Scanner</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M8 24 16 8h8l-8 16z' fill='%231da0c3'/></svg>">
+<style>
+:root {
+  --bg: #f4f3ef; --surface: #ffffff; --surface-2: #f7f6f3; --line: #e3e1da;
+  --text: #1c1c1a; --muted: #6d6b64; --faint: #9a978e;
+  --accent: #1a8fb0; --accent-ink: #ffffff;
+  --vinyl: #b3261e; --vinyl-bg: #fbe9e7; --merch: #7a4bc2; --merch-bg: #f1eafb;
+  --future: #9a5b00; --future-bg: #fff3dc; --now: #2e7d4f; --now-bg: #e5f4ea;
+  --saved: #c98a00; --shadow: 0 1px 2px rgba(0,0,0,.05), 0 4px 16px rgba(0,0,0,.04);
+  --player-bg: ffffff; --player-link: 1a8fb0;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #131312; --surface: #1c1c1b; --surface-2: #232321; --line: #2f2f2c;
+    --text: #ecebe6; --muted: #a3a197; --faint: #75736b;
+    --accent: #4cc0e0; --accent-ink: #0b1a1f;
+    --vinyl: #ff8a80; --vinyl-bg: #3a1c1a; --merch: #c6a6ff; --merch-bg: #2a2140;
+    --future: #ffc266; --future-bg: #3a2a10; --now: #7fd6a0; --now-bg: #16301f;
+    --saved: #ffcc4d; --shadow: none;
+    --player-bg: 1c1c1b; --player-link: 4cc0e0;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+header {
+  position: sticky; top: 0; z-index: 10;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+.bar { max-width: 1180px; margin: 0 auto; padding: 14px 20px 0; }
+.top { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+h1 { font-size: 17px; margin: 0; letter-spacing: -.01em; display: flex; align-items: center; gap: 8px; }
+h1 svg { flex: none; }
+.sync { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--now); }
+.dot.err { background: var(--vinyl); }
+.dot.wait { background: var(--faint); }
+.link-btn { background: none; border: 0; padding: 0; color: var(--accent); font-size: 12px; }
+
+.tabs { display: flex; gap: 2px; margin-top: 12px; overflow-x: auto; }
+.tab {
+  background: none; border: 0; padding: 8px 12px 10px; color: var(--muted);
+  border-bottom: 2px solid transparent; white-space: nowrap; font-weight: 500;
+}
+.tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.tab .n { font-size: 11px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 0 6px; margin-left: 4px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.tools { max-width: 1180px; margin: 0 auto; padding: 14px 20px 4px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.search { flex: 1 1 220px; min-width: 0; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; }
+.chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 5px 11px; font-size: 13px; color: var(--muted); }
+.chip[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+select.chip { appearance: none; padding-right: 11px; }
+.primary { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px; padding: 7px 14px; font-weight: 600; }
+.primary:disabled { opacity: .4; cursor: default; }
+
+main { max-width: 1180px; margin: 0 auto; padding: 8px 20px 80px; }
+.banner { background: var(--future-bg); color: var(--future); border-radius: 10px; padding: 12px 14px; margin: 8px 0 12px; font-size: 13px; }
+.banner code { background: rgba(0,0,0,.06); padding: 1px 5px; border-radius: 4px; }
+.empty { text-align: center; color: var(--muted); padding: 80px 20px; }
+
+.card {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 20px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+  padding: 16px; margin: 12px 0; box-shadow: var(--shadow);
+  transition: opacity .25s, transform .25s, border-color .15s;
+}
+.card.focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.card.leaving { opacity: 0; transform: translateX(24px); }
+.head { display: flex; gap: 14px; }
+.art { width: 104px; height: 104px; border-radius: 8px; object-fit: cover; flex: none; background: var(--surface-2); }
+.titles { min-width: 0; }
+.title { font-size: 17px; font-weight: 650; line-height: 1.25; margin: 0 0 2px; letter-spacing: -.01em; }
+.artist { font-size: 14px; }
+.label { color: var(--muted); font-size: 13px; }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 6px; background: var(--surface-2); color: var(--muted); border: 1px solid var(--line); }
+.badge.future { background: var(--future-bg); color: var(--future); border-color: transparent; }
+.badge.now { background: var(--now-bg); color: var(--now); border-color: transparent; }
+.badge.vinyl { background: var(--vinyl-bg); color: var(--vinyl); border-color: transparent; text-transform: uppercase; letter-spacing: .04em; }
+.badge.merch { background: var(--merch-bg); color: var(--merch); border-color: transparent; text-transform: uppercase; letter-spacing: .04em; }
+.formats { margin: 10px 0 0; padding: 0; list-style: none; font-size: 13px; }
+.formats li { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; border-top: 1px dashed var(--line); }
+.formats li:first-child { border-top: 0; }
+.formats .k { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; width: 58px; flex: none; color: var(--muted); }
+.formats .k.vinyl { color: var(--vinyl); } .formats .k.merch { color: var(--merch); }
+.formats .t { flex: 1; min-width: 0; }
+.formats .p { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.formats .so { color: var(--vinyl); font-size: 11px; font-weight: 600; }
+.blurb { margin: 12px 0 0; color: var(--muted); font-size: 13px; font-style: italic; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.tags { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 4px; }
+.tag { font-size: 11px; color: var(--muted); background: var(--surface-2); padding: 1px 7px; border-radius: 4px; }
+.meta { margin-top: 10px; font-size: 12px; color: var(--faint); }
+.actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.act { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 6px 12px; font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
+.act:hover { background: var(--surface-2); }
+.act.save.on { background: var(--saved); color: #1b1300; border-color: var(--saved); }
+.act kbd { font: 10px ui-monospace, Menlo, monospace; color: var(--faint); border: 1px solid var(--line); border-radius: 3px; padding: 0 3px; }
+.act.save.on kbd { color: inherit; border-color: rgba(0,0,0,.25); }
+.player { min-width: 0; }
+.player iframe { width: 100%; border: 0; border-radius: 8px; display: block; background: var(--surface-2); }
+.player .ph { border-radius: 8px; background: var(--surface-2); display: grid; place-items: center; color: var(--faint); font-size: 12px; text-align: center; padding: 10px; }
+
+.toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%) translateY(80px); background: var(--text); color: var(--bg); padding: 10px 14px; border-radius: 10px; font-size: 13px; display: flex; gap: 14px; align-items: center; transition: transform .2s; z-index: 20; max-width: calc(100vw - 32px); }
+.toast.show { transform: translateX(-50%) translateY(0); }
+.toast button { background: none; border: 0; color: var(--accent); font-weight: 700; padding: 0; }
+.help { font-size: 12px; color: var(--faint); max-width: 1180px; margin: 0 auto; padding: 0 20px; }
+.help kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; background: var(--surface); }
+
+@media (max-width: 820px) {
+  .card { grid-template-columns: 1fr; }
+  .art { width: 84px; height: 84px; }
+  .bar, .tools, main, .help { padding-left: 16px; padding-right: 16px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="top">
+      <h1><svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><path d="M6 25 15 7h11l-9 18z" fill="var(--accent)"/></svg>Bandcamp Release Scanner</h1>
+      <div class="sync"><span class="dot wait" id="dot"></span><span id="syncText">Connecting…</span> · <button class="link-btn" id="checkNow">Check now</button></div>
+    </div>
+    <div class="tabs" role="tablist" id="tabs"></div>
+  </div>
+</header>
+
+<div class="tools" id="tools">
+  <input class="search" id="search" type="search" placeholder="Search artist, title, label, tag…" autocomplete="off">
+  <button class="chip" data-filter="vinyl" aria-pressed="false">Vinyl</button>
+  <button class="chip" data-filter="merch" aria-pressed="false">Merch</button>
+  <button class="chip" data-filter="upcoming" aria-pressed="false">Upcoming</button>
+  <button class="chip" data-filter="out" aria-pressed="false">Out now</button>
+  <select class="chip" id="sort" aria-label="Sort">
+    <option value="received">Newest email</option>
+    <option value="release-asc">Release date ↑</option>
+    <option value="release-desc">Release date ↓</option>
+  </select>
+  <button class="primary" id="openAll" hidden>Open all</button>
+</div>
+<p class="help"><kbd>j</kbd>/<kbd>k</kbd> move · <kbd>s</kbd> save · <kbd>d</kbd> dismiss · <kbd>o</kbd> open page · <kbd>z</kbd> undo</p>
+
+<main id="list">
+  <div id="banner"></div>
+  <div id="cards"></div>
+  <div id="emptyMsg"></div>
+  <div class="empty" style="padding:30px"><form id="addForm" style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><input class="search" style="max-width:380px" name="url" placeholder="Add a release by URL…"><button class="act">Add</button></form></div>
+</main>
+<div class="toast" id="toast"><span id="toastText"></span><button id="undo">Undo</button></div>
+
+<script>
+const TABS = [
+  { id: 'new', label: 'To screen' },
+  { id: 'saved', label: 'Want list' },
+  { id: 'dismissed', label: 'Listened' },
+];
+const state = { releases: [], version: -1, tab: 'new', filters: new Set(), q: '', sort: 'received', focus: 0, status: {} };
+try { const s = JSON.parse(localStorage.getItem('bcs-ui') || '{}'); if (TABS.some(t => t.id === s.tab)) state.tab = s.tab; if (s.sort) state.sort = s.sort; } catch {}
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const decode = (s) => { const t = document.createElement('textarea'); t.innerHTML = s ?? ''; return t.value; };
+const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+function saveUi() { try { localStorage.setItem('bcs-ui', JSON.stringify({ tab: state.tab, sort: state.sort })); } catch {} }
+
+const today = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
+function parseDay(iso) { if (!iso) return null; const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d); }
+const fmtDay = (d) => d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+function relDays(n) {
+  if (n === 0) return 'today';
+  if (n === 1) return 'tomorrow';
+  if (n === -1) return 'yesterday';
+  return n > 0 ? `in ${n} days` : `${-n} days ago`;
+}
+function releaseBadge(r) {
+  const d = parseDay(r.release_date);
+  if (!d) return r.scraped_at ? '' : `<span class="badge">Release date loading…</span>`;
+  const n = Math.round((d - today()) / 864e5);
+  if (n > 0) return `<span class="badge future">${r.is_preorder ? 'Pre-order · ' : ''}Out ${esc(fmtDay(d))} · ${relDays(n)}</span>`;
+  if (n >= -14) return `<span class="badge now">Out now · released ${esc(fmtDay(d))}</span>`;
+  return `<span class="badge">Released ${esc(fmtDay(d))} · ${relDays(n)}</span>`;
+}
+const isUpcoming = (r) => { const d = parseDay(r.release_date); return d && d > today(); };
+const fmtPrice = (p, c) => { try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: c }).format(p); } catch { return `${p} ${c}`; } };
+function fmtDuration(s) { if (!s) return ''; const m = Math.round(s / 60); return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m} min`; }
+
+function playerSrc(r) {
+  const bg = cssVar('--player-bg'), link = cssVar('--player-link');
+  return `https://bandcamp.com/EmbeddedPlayer/${r.item_type === 'track' ? 'track' : 'album'}=${r.item_id}/size=large/bgcol=${bg}/linkcol=${link}/artwork=none/tracklist=${r.item_type === 'track' ? 'false' : 'true'}/transparent=true/`;
+}
+function playerHeight(r) {
+  if (r.item_type === 'track') return 120;
+  const n = Math.max(1, Math.min(r.track_count || 1, 9));
+  return 126 + n * 33;
+}
+
+function visible() {
+  const q = state.q.toLowerCase();
+  let list = state.releases.filter(r => r.status === state.tab);
+  if (state.filters.has('vinyl')) list = list.filter(r => r.has_vinyl);
+  if (state.filters.has('merch')) list = list.filter(r => r.has_merch);
+  if (state.filters.has('upcoming')) list = list.filter(isUpcoming);
+  if (state.filters.has('out')) list = list.filter(r => r.release_date && !isUpcoming(r));
+  if (q) list = list.filter(r => [r.title, r.artist, r.label, r.sender, ...(r.tags || [])].join(' ').toLowerCase().includes(q));
+  const rd = (r) => r.release_date || '9999';
+  if (state.sort === 'release-asc') list.sort((a, b) => rd(a).localeCompare(rd(b)));
+  else if (state.sort === 'release-desc') list.sort((a, b) => rd(b).localeCompare(rd(a)));
+  else list.sort((a, b) => (b.email_received || '').localeCompare(a.email_received || ''));
+  return list;
+}
+
+function earlierBadge(r) {
+  const e = r.earlier?.[0];
+  if (!e) return '';
+  const what = { saved: 'you saved it', dismissed: 'you marked it listened', new: 'still to screen' }[e.status] || '';
+  return `<span class="badge" title="An earlier email announced this release">Seen before · ${esc(new Date(e.received).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }))}${what ? ` · ${what}` : ''}</span>`;
+}
+function formatsHtml(r) {
+  if (!r.packages?.length) return '';
+  return `<ul class="formats">${r.packages.map(p => `
+    <li><span class="k ${p.kind}">${esc(p.kind)}</span>
+      <span class="t">${esc(p.title || p.type_name)}${p.ships && parseDay(p.ships) > today() ? ` <span style="color:var(--future)">· ships ${esc(fmtDay(parseDay(p.ships)))}</span>` : ''}</span>
+      ${p.sold_out ? '<span class="so">SOLD OUT</span>' : ''}
+      ${p.price != null ? `<span class="p">${esc(fmtPrice(p.price, p.currency))}</span>` : ''}
+    </li>`).join('')}</ul>`;
+}
+
+function cardHtml(r, i) {
+  const title = r.title || '(loading…)';
+  const byline = r.artist && r.artist !== r.label ? r.artist : (r.artist || '');
+  const received = r.email_received ? new Date(r.email_received) : null;
+  const saved = r.status === 'saved';
+  const vinylN = r.packages?.filter(p => p.kind === 'vinyl').length || 0;
+  const merch = r.packages?.filter(p => p.kind === 'merch') || [];
+  let actions;
+  if (r.status === 'saved') actions = `
+      <button class="act" data-do="dismissed" title="Take it off the want list and file it under Listened">Remove</button>`;
+  else if (r.status === 'new') actions = `
+      <button class="act save" data-do="saved">★ Want <kbd>s</kbd></button>
+      <button class="act" data-do="dismissed">✓ Listened <kbd>d</kbd></button>`;
+  else actions = `
+      <button class="act save" data-do="saved">★ Want</button>
+      <button class="act" data-do="new">Back to screening</button>`;
+  const player = r.item_id
+    ? `<div class="player" data-src="${esc(playerSrc(r))}" style="height:${playerHeight(r)}px"><div class="ph" style="height:100%">Loading player…</div></div>`
+    : `<div class="player"><div class="ph" style="height:160px">${r.scrape_error ? `Couldn't read the release page<br><small>${esc(r.scrape_error)}</small><br><button class="link-btn" data-do="rescrape">Retry</button>` : 'Fetching release details…'}</div></div>`;
+  return `<article class="card${i === state.focus ? ' focus' : ''}" data-id="${r.id}">
+    <div>
+      <div class="head">
+        <a href="${esc(r.url)}" target="_blank" rel="noopener"><img class="art" src="${esc(r.art_url || '')}" alt="" loading="lazy"></a>
+        <div class="titles">
+          <p class="title"><a href="${esc(r.url)}" target="_blank" rel="noopener" style="color:inherit">${esc(title)}</a></p>
+          ${byline ? `<div class="artist">${esc(byline)}</div>` : ''}
+          <div class="label">${esc((r.label || r.sender || '') === byline ? 'Self-released' : (r.label || r.sender || ''))}${r.track_count ? ` · ${r.track_count} track${r.track_count > 1 ? 's' : ''}` : ''}${r.duration ? ` · ${fmtDuration(r.duration)}` : ''}</div>
+        </div>
+      </div>
+      <div class="badges">
+        ${releaseBadge(r)}
+        ${r.has_vinyl ? `<span class="badge vinyl">● Vinyl${vinylN > 1 ? ` ×${vinylN}` : ''}</span>` : ''}
+        ${merch.length ? `<span class="badge merch">◆ Merch: ${esc(merch.map(p => p.type_name || p.title).filter((v, i, a) => a.indexOf(v) === i).join(', '))}</span>` : ''}
+        ${r.email_verb === 'announced' ? '<span class="badge">Announced</span>' : ''}
+        ${earlierBadge(r)}
+      </div>
+      ${formatsHtml(r)}
+      ${r.email_blurb ? `<p class="blurb">“${esc(decode(r.email_blurb))}”</p>` : ''}
+      ${r.tags?.length ? `<div class="tags">${r.tags.slice(0, 8).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
+      <div class="meta">Email from ${esc(r.sender || 'Bandcamp')}${received ? ` · ${esc(received.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }))}` : ''}${r.gmail_link ? ` · <a href="${esc(r.gmail_link)}" target="_blank" rel="noopener">view email</a>` : ''}</div>
+      <div class="actions">${actions}
+        <a class="act" href="${esc(r.url)}" target="_blank" rel="noopener">Open ↗ <kbd>o</kbd></a>
+      </div>
+    </div>
+    ${player}
+  </article>`;
+}
+
+const io = new IntersectionObserver((entries) => {
+  for (const e of entries) {
+    if (!e.isIntersecting) continue;
+    const el = e.target;
+    io.unobserve(el);
+    el.innerHTML = `<iframe src="${el.dataset.src}" style="height:100%" loading="lazy" seamless title="Bandcamp player"></iframe>`;
+  }
+}, { rootMargin: '800px 0px' });
+
+// Keep existing iframes across re-renders so a playing track isn't interrupted.
+function render() {
+  const list = visible();
+  state.focus = Math.min(state.focus, Math.max(0, list.length - 1));
+  const counts = Object.fromEntries(TABS.map(t => [t.id, state.releases.filter(r => r.status === t.id).length]));
+  $('#tabs').innerHTML = TABS.map(t => `<button class="tab" role="tab" aria-selected="${t.id === state.tab}" data-tab="${t.id}">${t.label}<span class="n">${counts[t.id]}</span></button>`).join('');
+  const openAll = $('#openAll');
+  openAll.hidden = state.tab !== 'saved';
+  openAll.disabled = !counts.saved;
+  openAll.textContent = `Open all ${counts.saved || ''}`.trim();
+  document.title = counts.new ? `(${counts.new}) Bandcamp Release Scanner` : 'Bandcamp Release Scanner';
+
+  let banner = '';
+  if (state.status.state === 'needs_setup') banner = `<div class="banner"><strong>Gmail isn't connected yet.</strong> Set <code>GMAIL_ADDRESS</code> and <code>GMAIL_APP_PASSWORD</code> for the scanner. Until then you can still add releases by pasting a URL below.</div>`;
+  else if (state.status.state === 'error') banner = `<div class="banner"><strong>Gmail check failed:</strong> ${esc(state.status.error)}</div>`;
+  setHtml($('#banner'), banner);
+
+  const msg = { new: 'All caught up — nothing left to screen.', saved: 'Your want list is empty. Press ★ Want on a release to add it.', dismissed: 'Nothing marked as listened yet.' }[state.tab];
+  setHtml($('#emptyMsg'), list.length ? '' : `<div class="empty" style="padding-bottom:0">${state.version < 0 ? 'Loading…' : msg}</div>`);
+  reconcileCards(list);
+}
+
+function setHtml(el, html) { if (el._html !== html) { el.innerHTML = html; el._html = html; } }
+
+// Update the card list in place. Moving or re-creating an iframe reloads it (and stops playback),
+// so existing cards are never moved or rebuilt: only their text is refreshed, and cards are
+// inserted/removed around them. A full rebuild happens only when the order itself changes (sort/tab).
+function reconcileCards(list) {
+  const box = $('#cards');
+  const wanted = list.map(r => String(r.id));
+  const wantedSet = new Set(wanted);
+  let existing = new Map([...box.children].map(c => [c.dataset.id, c]));
+  const keptOrder = [...box.children].map(c => c.dataset.id).filter(id => wantedSet.has(id));
+  if (keptOrder.join() !== wanted.filter(id => existing.has(id)).join()) { box.innerHTML = ''; existing = new Map(); }
+  for (const [id, el] of existing) if (!wantedSet.has(id)) { el.remove(); existing.delete(id); }
+
+  let prev = null;
+  list.forEach((r, i) => {
+    const html = cardHtml(r, -1);
+    let el = existing.get(String(r.id));
+    if (!el) {
+      el = fromHtml(html);
+      prev ? prev.after(el) : box.prepend(el);
+      observePlayer(el);
+    } else if (el._html !== html) {
+      const fresh = fromHtml(html);
+      el.replaceChild(fresh.firstElementChild, el.firstElementChild);
+      const oldP = el.querySelector('.player'), newP = fresh.querySelector('.player');
+      const keep = oldP.dataset.src && oldP.dataset.src === newP.dataset.src;
+      if (!keep) { oldP.replaceWith(newP); observePlayer(el); }
+    }
+    el._html = html;
+    el.classList.toggle('focus', i === state.focus);
+    el.classList.remove('leaving');
+    prev = el;
+  });
+}
+function fromHtml(html) { const t = document.createElement('template'); t.innerHTML = html.trim(); const el = t.content.firstElementChild; el._html = html; return el; }
+function observePlayer(card) { const p = card.querySelector('.player[data-src]'); if (p && !p.querySelector('iframe')) io.observe(p); }
+
+let toastTimer, lastUndo = null;
+function toast(text, undo) {
+  $('#toastText').textContent = text;
+  $('#undo').hidden = !undo;
+  lastUndo = undo || null;
+  $('#toast').classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $('#toast').classList.remove('show'), 5000);
+}
+
+async function api(path, body) {
+  const res = await fetch(path, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+async function setStatus(id, status) {
+  const r = state.releases.find(x => x.id === id);
+  if (!r) return;
+  const prev = r.status;
+  const card = document.querySelector(`.card[data-id="${id}"]`);
+  if (card) { card.classList.add('leaving'); await new Promise(res => setTimeout(res, 180)); }
+  r.status = status;
+  render();
+  const words = { saved: 'Added to want list', dismissed: 'Marked as listened', new: 'Moved back to screening' };
+  toast(`${words[status]} — ${r.title || ''}`, () => setStatus(id, prev));
+  try { await api(`/api/releases/${id}`, { status }); } catch (e) { r.status = prev; render(); toast(`Couldn't save: ${e.message}`); }
+}
+
+async function load() {
+  try {
+    const data = await api('/api/releases');
+    state.releases = data.releases;
+    state.version = data.version;
+    state.status = data.status || {};
+    render();
+    updateSync();
+  } catch (e) { $('#dot').className = 'dot err'; $('#syncText').textContent = 'Scanner not running'; }
+}
+function updateSync() {
+  const s = state.status;
+  $('#dot').className = 'dot ' + (s.state === 'ok' ? '' : s.state === 'error' || s.state === 'needs_setup' ? 'err' : 'wait');
+  const t = s.last_check ? new Date(s.last_check).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : null;
+  $('#syncText').textContent = s.state === 'needs_setup' ? 'Gmail not connected' : s.state === 'error' ? 'Gmail error' : t ? `Checked Gmail ${t}` : 'Checking Gmail…';
+}
+async function poll() {
+  try {
+    const s = await api('/api/status');
+    const before = state.releases.filter(r => r.status === 'new').length;
+    state.status = s;
+    updateSync();
+    if (s.version !== state.version) {
+      await load();
+      const after = state.releases.filter(r => r.status === 'new').length;
+      if (after > before && before >= 0 && state.version >= 0) toast(`${after - before} new release${after - before > 1 ? 's' : ''} to screen`);
+    }
+  } catch { $('#dot').className = 'dot err'; $('#syncText').textContent = 'Scanner not running'; }
+}
+
+// ---- events
+document.addEventListener('click', async (e) => {
+  const tab = e.target.closest('[data-tab]');
+  if (tab) { state.tab = tab.dataset.tab; state.focus = 0; saveUi(); render(); window.scrollTo({ top: 0 }); return; }
+  const chip = e.target.closest('[data-filter]');
+  if (chip) {
+    const f = chip.dataset.filter;
+    state.filters.has(f) ? state.filters.delete(f) : state.filters.add(f);
+    if (f === 'upcoming' && state.filters.has('out')) { state.filters.delete('out'); $('[data-filter="out"]').setAttribute('aria-pressed', 'false'); }
+    if (f === 'out' && state.filters.has('upcoming')) { state.filters.delete('upcoming'); $('[data-filter="upcoming"]').setAttribute('aria-pressed', 'false'); }
+    chip.setAttribute('aria-pressed', state.filters.has(f));
+    state.focus = 0; render(); return;
+  }
+  const btn = e.target.closest('[data-do]');
+  if (btn) {
+    const id = Number(btn.closest('.card').dataset.id);
+    if (btn.dataset.do === 'rescrape') { btn.textContent = 'Retrying…'; try { await api('/api/rescrape', { id }); await load(); } catch (err) { toast(err.message); } return; }
+    setStatus(id, btn.dataset.do); return;
+  }
+  const card = e.target.closest('.card');
+  if (card) { const i = visible().findIndex(r => r.id === Number(card.dataset.id)); if (i >= 0 && i !== state.focus) { state.focus = i; document.querySelectorAll('.card').forEach((c, j) => c.classList.toggle('focus', j === i)); } }
+});
+$('#undo').addEventListener('click', () => { const u = lastUndo; lastUndo = null; $('#toast').classList.remove('show'); u && u(); });
+// Opens the pages from this browser. Browsers allow one pop-up per click by default, so after the
+// first run the user may need to allow pop-ups for this site once; we detect that and say so.
+$('#openAll').addEventListener('click', () => {
+  const urls = state.releases.filter(r => r.status === 'saved').sort((a, b) => a.email_received.localeCompare(b.email_received)).map(r => r.url);
+  if (urls.length > 15 && !confirm(`Open ${urls.length} tabs?`)) return;
+  let opened = 0;
+  for (const url of urls) { const w = window.open(url, '_blank'); if (w) { w.opener = null; opened++; } }
+  if (opened < urls.length) toast(`Your browser blocked ${urls.length - opened} of ${urls.length} tabs. Allow pop-ups for this site (icon at the right of the address bar), then click Open all again.`);
+  else toast(`Opened ${opened} release page${opened === 1 ? '' : 's'}`);
+});
+$('#checkNow').addEventListener('click', async () => { $('#syncText').textContent = 'Checking Gmail…'; await api('/api/check-now', {}); setTimeout(poll, 4000); });
+$('#search').addEventListener('input', (e) => { state.q = e.target.value; state.focus = 0; render(); });
+$('#sort').value = state.sort;
+$('#sort').addEventListener('change', (e) => { state.sort = e.target.value; saveUi(); render(); });
+document.addEventListener('submit', async (e) => {
+  if (e.target.id !== 'addForm') return;
+  e.preventDefault();
+  const url = new FormData(e.target).get('url');
+  try { toast('Adding…'); await api('/api/add', { url }); e.target.reset(); await load(); toast('Added'); } catch (err) { toast(err.message); }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey || e.target.matches('input, select, textarea')) return;
+  const list = visible();
+  const cur = list[state.focus];
+  const moveTo = (i) => {
+    state.focus = Math.max(0, Math.min(list.length - 1, i));
+    document.querySelectorAll('.card').forEach((c, j) => c.classList.toggle('focus', j === state.focus));
+    document.querySelectorAll('.card')[state.focus]?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  };
+  if (e.key === 'j') moveTo(state.focus + 1);
+  else if (e.key === 'k') moveTo(state.focus - 1);
+  else if (e.key === 's' && cur) setStatus(cur.id, cur.status === 'saved' ? 'new' : 'saved');
+  else if ((e.key === 'd' || e.key === 'x') && cur && cur.status === 'new') setStatus(cur.id, 'dismissed');
+  else if (e.key === 'o' && cur) window.open(cur.url, '_blank', 'noopener');
+  else if (e.key === 'z' && lastUndo) { const u = lastUndo; lastUndo = null; $('#toast').classList.remove('show'); u(); }
+  else return;
+  e.preventDefault();
+});
+
+load();
+setInterval(poll, 15000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+</script>
+</body>
+</html>
