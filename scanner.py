@@ -412,7 +412,7 @@ def scrape_pending(max_items=50):
     return len(rows)
 
 
-def upsert_release(info, gmail_link=None, always_merge=False):
+def upsert_release(info, gmail_link=None):
     """Insert a release announced by an email; returns (release_id, is_new).
 
     An email for a release already on file within MERGE_WINDOW_HOURS is merged into that card;
@@ -421,9 +421,9 @@ def upsert_release(info, gmail_link=None, always_merge=False):
     with _db_lock, db() as conn:
         row = conn.execute(
             """SELECT id, sender FROM releases WHERE url=?
-               AND (? OR abs(julianday(email_received) - julianday(?)) * 24 < ?)
+               AND abs(julianday(email_received) - julianday(?)) * 24 < ?
                ORDER BY email_received DESC LIMIT 1""",
-            (info["url"], always_merge, received, MERGE_WINDOW_HOURS),
+            (info["url"], received, MERGE_WINDOW_HOURS),
         ).fetchone()
         if row:
             # Same release announced again (e.g. by both label and artist): note the extra sender.
@@ -699,20 +699,6 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": True})
             except Exception as exc:
                 return self._json({"error": str(exc)}, 502)
-        if path == "/api/add":
-            # Manually add a release page URL (handy for links that arrived some other way).
-            url = (body.get("url") or "").strip()
-            if not re.match(r"https?://\S+/(album|track)/", url):
-                return self._json({"error": "expected a bandcamp /album/ or /track/ URL"}, 400)
-            rid, is_new = upsert_release({"url": canonical_url(url), "sender": "Added manually",
-                                          "verb": "added", "received": now_iso()},
-                                          always_merge=True)
-            try:
-                store_scrape(rid, scrape_release(canonical_url(url)))
-            except Exception as exc:
-                log.warning("scrape failed for manual add: %s", exc)
-            bump_version()
-            return self._json({"id": rid, "new": is_new})
         self._json({"error": "not found"}, 404)
 
 

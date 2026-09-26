@@ -34,7 +34,6 @@ pop-ups for the site (icon at the right of Chrome's address bar). The page tells
 
 Keyboard: `j`/`k` move, `s` save, `d` dismiss, `o` open page, `z` undo.
 Filters: Vinyl, Merch, Upcoming, Out now; sort by email date or release date.
-You can also paste any Bandcamp album/track URL at the bottom of the list to add it by hand.
 
 ## Deploying with Docker
 
